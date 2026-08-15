@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import time
+import csv
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -89,20 +90,47 @@ def _parse_nvidia_smi_table():
         m = re.search(r"Not Supported\s*\|\s+(\d+)%", line)
         if m:
             util = int(m.group(1)) / 100.0
-        # Process row: "|    0   N/A   N/A            2408      G   /usr/lib/xorg/Xorg      18MiB |"
+        # Graphics (type G) context row from the table:
+        #   "|    0   N/A   N/A            2408      G   /usr/lib/xorg/Xorg      18MiB |"
+        # Desktop graphics contexts (Xorg, gnome-shell) hold small memory that is
+        # never truncated, so the MiB/GiB pattern is reliable here. Compute (C)
+        # rows are deliberately NOT parsed here because nvidia-smi truncates
+        # large values (e.g. "11125..." for 111255 MiB); C rows come from the
+        # machine-readable --query-compute-apps CSV below.
         m = re.search(
-            r"^\|\s+0\s+N/A\s+N/A\s+(\d+)\s+([GC])\s+(.*?)\s+(\d+)(MiB|GiB)\s*\|$", line
+            r"^\|\s+0\s+N/A\s+N/A\s+(\d+)\s+G\s+(.*?)\s+(\d+)(MiB|GiB)\s*\|$", line
         )
         if m:
-            pid, ptype, name = m.group(1), m.group(2), m.group(3).strip()
-            amount = int(m.group(4))
-            if m.group(5) == "GiB":
+            pid = m.group(1)
+            name = m.group(2).strip()
+            amount = int(m.group(3))
+            if m.group(4) == "GiB":
                 amount *= 1024
             proc_bytes = amount * 1024 * 1024
             gpu_used += proc_bytes
-            if ptype == "C":
-                app_count += 1
-            procs.append((pid, ptype, name, proc_bytes))
+            procs.append((pid, "G", name, proc_bytes))
+
+    # Compute (C) contexts from machine-readable CSV. This avoids the table's
+    # truncation of large allocations such as vLLM's ~111 GB EngineCore.
+    # Format: "469190, VLLM::EngineCore, 111255" (MiB when nounits is set).
+    try:
+        capps = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=False,
+        ).stdout
+    except OSError:
+        capps = ""
+    for cid, cproc, cused in csv.reader([ln for ln in capps.splitlines() if ln.strip()]):
+        try:
+            pid = cid.strip()
+            name = cproc.strip()
+            proc_bytes = int(cused.strip()) * 1024 * 1024
+        except ValueError:
+            continue
+        app_count += 1
+        gpu_used += proc_bytes
+        procs.append((pid, "C", name, proc_bytes))
 
     return gpu_used, procs, util, mem_util, temp, power, app_count
 

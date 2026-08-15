@@ -1,0 +1,66 @@
+services:
+  dgx-collector:
+    # Handwritten custom collector for the DGX Spark (GB10) unified-memory
+    # architecture. Replaces both nvidia-gpu-exporter and node-exporter:
+    # it parses /proc/meminfo + nvidia-smi and serves Prometheus metrics
+    # directly on :9273/metrics. No textfile, no node-exporter involved.
+    image: python:3.12-slim
+    container_name: dgx-collector
+    restart: unless-stopped
+    environment:
+      DGX_EXPORTER_PORT: "9273"
+      COLLECT_INTERVAL: "10"
+      NVIDIA_DRIVER_CAPABILITIES: utility
+      # nvidia-smi inside the container reports CUDA Version: N/A (no CUDA
+      # toolkit), so pass the host's real driver + CUDA versions explicitly.
+      DGX_DRIVER_VERSION: "580.126.09"
+      DGX_CUDA_VERSION: "13.0"
+    volumes:
+      - ./collector/dgx_collector.py:/opt/dgx_collector.py:ro
+      - /proc/meminfo:/proc/meminfo:ro
+    command: ["/usr/local/bin/python3", "/opt/dgx_collector.py"]
+    ports:
+      - "9273:9273"
+    pid: host
+    ipc: private
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_DEFAULT_THEME: dark
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  prometheus-data:
+    name: dgx-gpu-monitoring_prometheus-data
+  grafana-data:
+    name: dgx-gpu-monitoring_grafana-data

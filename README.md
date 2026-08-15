@@ -20,6 +20,15 @@ and `node-exporter` with one self-contained Python collector that:
 The collector installs with the NVIDIA container runtime so `nvidia-smi` works
 and sees host GPU workloads (e.g. vLLM).
 
+## Dashboard
+
+![DGX Spark dashboard](docs/screenshot-dashboard.png)
+
+Grafana auto-provisions a pre-built dashboard (GPU + Unified Memory). The
+**GPU Information** panel pulls live static GPU details straight from
+`nvidia-smi` — model, host, driver, CUDA, PCI bus, VBIOS, compute capability,
+P-state and compute mode — via the `dgx_gpu_info` metric.
+
 ## Components
 
 | Service | Port | Role |
@@ -35,8 +44,8 @@ and sees host GPU workloads (e.g. vLLM).
 - `dgx_unified_memory_process_used_bytes{pid,type,process_name}` — per process
 - `dgx_gpu_utilization_ratio`, `dgx_gpu_temperature_celsius`,
   `dgx_gpu_power_draw_watts`, `dgx_gpu_compute_apps`
-- `dgx_gpu_info{name,driver,cuda,uuid}`, `dgx_gpu_pstate`,
-  `dgx_gpu_compute_mode`, `dgx_gpu_persistence_mode`
+- `dgx_gpu_info{name,driver,cuda,uuid,pci_bus_id,host,vbios,compute_cap,pstate,compute_mode}`,
+  `dgx_gpu_pstate`, `dgx_gpu_compute_mode`, `dgx_gpu_persistence_mode`
 - `dgx_collect_success` — 1 if the last collection succeeded
 
 ## Quick start
@@ -66,4 +75,5 @@ grafana/provisioning/                   # datasource + dashboard (auto-loaded)
   datasources/prometheus.yml
   dashboards/dashboards.yml
   dashboards/dgx-gpu-smi.json
+docs/screenshot-dashboard.png           # live dashboard screenshot (README)
 ```

@@ -35,7 +35,7 @@
       "id": 1,
       "type": "stat",
       "title": "GPU utilization",
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -55,7 +55,7 @@
       "id": 2,
       "type": "stat",
       "title": "GPU temperature",
-      "gridPos": { "h": 5, "w": 4, "x": 6, "y": 0 },
+      "gridPos": { "h": 5, "w": 3, "x": 4, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -75,7 +75,7 @@
       "id": 3,
       "type": "stat",
       "title": "GPU power",
-      "gridPos": { "h": 5, "w": 4, "x": 10, "y": 0 },
+      "gridPos": { "h": 5, "w": 3, "x": 7, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -95,7 +95,7 @@
       "id": 4,
       "type": "stat",
       "title": "Compute apps",
-      "gridPos": { "h": 5, "w": 4, "x": 14, "y": 0 },
+      "gridPos": { "h": 5, "w": 4, "x": 10, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -114,7 +114,7 @@
       "id": 5,
       "type": "table",
       "title": "GPU Information",
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "gridPos": { "h": 5, "w": 10, "x": 14, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "transformations": [
         { "id": "labelsToFields", "options": { "mode": "columns" } },

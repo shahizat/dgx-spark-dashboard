@@ -15,6 +15,8 @@ services:
       # toolkit), so pass the host's real driver + CUDA versions explicitly.
       DGX_DRIVER_VERSION: "580.126.09"
       DGX_CUDA_VERSION: "13.0"
+      # Friendly host name for the info panel (container hostname is a random ID).
+      DGX_HOST_NAME: "gx10-868a"
     volumes:
       - ./collector/dgx_collector.py:/opt/dgx_collector.py:ro
       - /proc/meminfo:/proc/meminfo:ro

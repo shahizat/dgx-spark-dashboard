@@ -19,13 +19,14 @@ Metrics exposed:
   dgx_gpu_memory_controller_ratio        - nvidia-smi memory controller util [0..1] (may be N/A)
   dgx_gpu_temperature_celsius            - nvidia-smi temperature
   dgx_gpu_power_draw_watts               - nvidia-smi power draw
-  dgx_gpu_info                           - static GPU {name,driver,cuda,uuid}
+  dgx_gpu_info                           - static GPU info {name,driver,cuda,uuid,pci_bus_id,host,vbios,compute_cap,pstate,compute_mode}
   dgx_gpu_compute_apps                   - number of processes with a compute context
   dgx_collect_success                    - 1 if the last collection succeeded
 """
 
 import os
 import re
+import socket
 import subprocess
 import time
 import csv
@@ -145,24 +146,37 @@ def _nvidia_driver():
     persistence_mode/pstate.
     """
     info = {"name": "NVIDIA GB10", "driver": "unknown", "cuda": "unknown", "uuid": "unknown",
-            "compute_mode": "unknown", "persistence_mode": "unknown", "pstate": "unknown"}
+            "compute_mode": "unknown", "persistence_mode": "unknown", "pstate": "unknown",
+            "pci_bus_id": "unknown", "vbios": "unknown", "compute_cap": "unknown",
+            "host": "unknown"}
     try:
         out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,driver_version,uuid,compute_mode,persistence_mode,pstate",
+            ["nvidia-smi",
+             "--query-gpu=name,driver_version,uuid,compute_mode,persistence_mode,pstate,pci.bus_id,vbios_version,compute_cap",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, check=False,
         ).stdout
         # values may contain commas? (typically not for these fields)
         parts = [p.strip() for p in out.split(",")]
-        if len(parts) >= 6:
+        if len(parts) >= 9:
             info["name"] = parts[0]
             info["driver"] = parts[1]
             info["uuid"] = parts[2]
             info["compute_mode"] = parts[3]
             info["persistence_mode"] = parts[4]
             info["pstate"] = parts[5]
+            info["pci_bus_id"] = parts[6]
+            info["vbios"] = parts[7]
+            info["compute_cap"] = parts[8]
     except OSError:
         pass
+
+    # Host that runs the collector (DGX Spark unit). Inside a container the
+    # default hostname is the container ID, which is not useful; prefer an
+    # explicit DGX_HOST_NAME override (set in docker-compose.yml to the host's
+    # real hostname) and fall back to socket.gethostname().
+    env_host = os.environ.get("DGX_HOST_NAME", "").strip()
+    info["host"] = env_host or socket.gethostname()
 
     # Override driver + CUDA from env vars (authoritative host values set in
     # docker-compose.yml). nvidia-smi may report an empty/placeholder driver in
@@ -229,7 +243,10 @@ def collect():
           "Number of processes with a compute context on the GPU.", app_count)
     gauge("dgx_gpu_info", "Static GPU info.",
           1, {"name": info["name"], "driver": info["driver"],
-              "cuda": info["cuda"], "uuid": info["uuid"][:8]})
+              "cuda": info["cuda"], "uuid": info["uuid"][:8],
+              "pci_bus_id": info["pci_bus_id"], "host": info["host"],
+              "vbios": info["vbios"], "compute_cap": info["compute_cap"],
+              "pstate": info["pstate"], "compute_mode": info["compute_mode"]})
     gauge("dgx_gpu_pstate", "GPU performance state (NVIDIA P-state).",
           1, {"pstate": info["pstate"]})
     # Compute/persistence modes as both a readable label gauge and a numeric

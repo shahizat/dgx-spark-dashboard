@@ -112,16 +112,46 @@
     },
     {
       "id": 5,
-      "type": "stat",
-      "title": "GPU name",
+      "type": "table",
+      "title": "GPU Information",
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "transformations": [
+        { "id": "labelsToFields", "options": { "mode": "columns" } },
+        { "id": "organize", "options": {
+          "excludeByName": {
+            "Value": true, "Time": true, "__name__": true,
+            "instance": true, "job": true, "uuid": true
+          },
+          "indexByName": {
+            "name": 1, "host": 2, "driver": 3, "cuda": 4,
+            "pci_bus_id": 5, "vbios": 6, "compute_cap": 7,
+            "pstate": 8, "compute_mode": 9
+          },
+          "renameByName": {
+            "name": "GPU", "host": "Host", "driver": "Driver",
+            "cuda": "CUDA", "pci_bus_id": "PCI Bus", "vbios": "VBIOS",
+            "compute_cap": "Compute Capability", "pstate": "P-State",
+            "compute_mode": "Compute Mode"
+          }
+        } }
+      ],
       "fieldConfig": {
-        "defaults": { "color": { "mode": "fixed", "fixedColor": "text" } },
-        "overrides": []
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }
+          ]}
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Time" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
+          { "matcher": { "id": "byName", "options": "Value" }, "properties": [ { "id": "custom.hidden", "value": true } ] }
+        ]
       },
-      "options": { "reduceOptions": { "values": false, "calcs": ["lastNotNull"] } },
-      "targets": [ { "expr": "dgx_gpu_info", "legendFormat": "{{name}}" } ]
+      "options": { "showHeader": true },
+      "targets": [ { "expr": "dgx_gpu_info", "format": "table", "instant": true, "legendFormat": "__auto", "refId": "A" } ]
     },
     {
       "id": 10,

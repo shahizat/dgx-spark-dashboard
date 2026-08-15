@@ -1,52 +1,56 @@
 # DGX Spark Dashboard
 
-Docker Compose monitoring dashboard for an **NVIDIA DGX Spark (GB10)** with a
-single handwritten custom collector that exports **unified-memory** and
-**nvidia-smi** GPU metrics directly to Prometheus.
+A Docker Compose monitoring setup for the **NVIDIA DGX Spark (GB10)**. A single
+Python collector reads GPU and memory stats and feeds them to Prometheus, which
+Grafana visualizes in a dashboard.
 
 ## Why a custom collector?
 
-GB10 uses a *unified-memory* architecture: the GPU has **no discrete VRAM**
-(`nvidia-smi` reports memory as `Not Supported` / `N/A`), so every CUDA
-allocation shares the host's ~130 GB system RAM. Standard exporters therefore
-expose no usable memory figure. This project replaces both `nvidia-gpu-exporter`
-and `node-exporter` with one self-contained Python collector that:
+The GB10 uses a unified-memory architecture. There is no separate VRAM chip, so
+`nvidia-smi` reports memory as `N/A` and every CUDA allocation lives in the
+host's ~130 GB system RAM. Standard GPU exporters have nothing useful to expose
+for this, and a plain node exporter does not understand GPU processes either.
 
-- parses `/proc/meminfo` for unified-memory total / used / available
-- parses the `nvidia-smi` per-process table for GPU compute + graphics contexts
-- reads GPU utilization, temperature, power draw and process count from `nvidia-smi`
-- serves all of it over HTTP as Prometheus `/metrics` (no textfile / node-exporter)
+This project replaces both `nvidia-gpu-exporter` and `node-exporter` with one
+small Python collector that:
 
-The collector installs with the NVIDIA container runtime so `nvidia-smi` works
-and sees host GPU workloads (e.g. vLLM).
+- reads `/proc/meminfo` for unified-memory total, used and available
+- parses the `nvidia-smi` process table to track per-process GPU memory
+- reports GPU utilization, temperature, power draw and the compute-app count
+- serves everything over HTTP as Prometheus `/metrics`, with no extra agents
+
+The collector runs with the NVIDIA container runtime, so `nvidia-smi` works
+inside the container and it can see host GPU workloads such as vLLM.
 
 ## Dashboard
 
 ![DGX Spark dashboard](docs/screenshot-dashboard.png)
 
-Grafana auto-provisions a pre-built dashboard (GPU + Unified Memory). The
-**GPU Information** panel pulls live static GPU details straight from
-`nvidia-smi` — model, host, driver, CUDA, PCI bus, VBIOS, compute capability,
-P-state and compute mode — via the `dgx_gpu_info` metric.
+Grafana provisions the dashboard automatically on first start. It covers GPU
+usage and unified-memory across multiple panels, including a **GPU Information**
+panel that shows static hardware details from `nvidia-smi` (model, host, driver,
+CUDA version, PCI bus, VBIOS, compute capability, P-state and compute mode),
+all sourced from the `dgx_gpu_info` metric.
 
 ## Components
 
 | Service | Port | Role |
 |---|---|---|
-| `dgx-collector` | 9273 | Custom unified-memory + nvidia-smi collector |
-| `prometheus` | 9090 | Scrapes the collector |
+| `dgx-collector` | 9273 | Custom unified-memory and nvidia-smi collector |
+| `prometheus` | 9090 | Scrapes the collector every 10s |
 | `grafana` | 3000 | Dashboard (provisioned automatically) |
 
 ## Metrics (`dgx_*`)
 
-- `dgx_unified_memory_total_bytes` / `used_bytes` / `available_bytes`
-- `dgx_unified_memory_gpu_used_bytes` — sum across all GPU process contexts
-- `dgx_unified_memory_process_used_bytes{pid,type,process_name}` — per process
+- `dgx_unified_memory_total_bytes`, `dgx_unified_memory_used_bytes`,
+  `dgx_unified_memory_available_bytes`
+- `dgx_unified_memory_gpu_used_bytes` (sum across all GPU process contexts)
+- `dgx_unified_memory_process_used_bytes{pid,type,process_name}` (per process)
 - `dgx_gpu_utilization_ratio`, `dgx_gpu_temperature_celsius`,
   `dgx_gpu_power_draw_watts`, `dgx_gpu_compute_apps`
-- `dgx_gpu_info{name,driver,cuda,uuid,pci_bus_id,host,vbios,compute_cap,pstate,compute_mode}`,
-  `dgx_gpu_pstate`, `dgx_gpu_compute_mode`, `dgx_gpu_persistence_mode`
-- `dgx_collect_success` — 1 if the last collection succeeded
+- `dgx_gpu_info{name,driver,cuda,uuid,pci_bus_id,host,vbios,compute_cap,pstate,compute_mode}`
+- `dgx_gpu_pstate`, `dgx_gpu_compute_mode`, `dgx_gpu_persistence_mode`
+- `dgx_collect_success` (1 when the last collection succeeded)
 
 ## Quick start
 
@@ -62,18 +66,19 @@ Then open:
 
 Grafana auto-provisions the Prometheus datasource and dashboard on first start.
 
-> `NVIDIA_DRIVER_CAPABILITIES=utility`, the NVIDIA device reservation, and the
-> `/proc/meminfo` mount are required for the collector to read GPU + memory data.
+> The collector needs `NVIDIA_DRIVER_CAPABILITIES=utility`, an NVIDIA device
+> reservation, and the `/proc/meminfo` mount so it can read GPU and memory data.
+> These are all configured in `docker-compose.yml`.
 
 ## Layout
 
 ```
-docker-compose.yml                      # collector + prometheus + grafana
-collector/dgx_collector.py              # handwritten custom collector
-prometheus/prometheus.yml               # scrape configs
-grafana/provisioning/                   # datasource + dashboard (auto-loaded)
+docker-compose.yml                      # collector, prometheus, grafana
+collector/dgx_collector.py              # the custom collector
+prometheus/prometheus.yml               # scrape config
+grafana/provisioning/                   # datasource and dashboard (auto-loaded)
   datasources/prometheus.yml
   dashboards/dashboards.yml
   dashboards/dgx-gpu-smi.json
-docs/screenshot-dashboard.png           # live dashboard screenshot (README)
+docs/screenshot-dashboard.png           # dashboard screenshot (linked in README)
 ```

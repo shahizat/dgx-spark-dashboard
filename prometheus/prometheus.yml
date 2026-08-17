@@ -11,6 +11,19 @@ scrape_configs:
     static_configs:
       - targets: ["dgx-collector:9273"]
 
+  - job_name: "vllm"
+    # vLLM's OpenAI-compatible server exposes Prometheus metrics on /metrics.
+    # It runs on the HOST (not inside this compose), so Prometheus reaches it
+    # via host.docker.internal — see extra_hosts on the prometheus service in
+    # docker-compose.yml. Scraped at 5s so decode throughput / spec-decode
+    # acceptance move in near real time on the dashboard. If your server is on
+    # a different host or port, change the target below.
+    metrics_path: /metrics
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+
   - job_name: "prometheus"
     static_configs:
       - targets: ["localhost:9090"]

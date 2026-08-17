@@ -37,6 +37,29 @@ all sourced from the `dgx_gpu_info` metric. A **CPU & Memory** row shows host
 CPU utilization, load average, CPU model/cores and system-RAM usage (sourced
 from `dgx_cpu_*` and `dgx_memory_*`).
 
+## vLLM serving metrics (optional)
+
+If you run a [vLLM](https://github.com/vllm-project/vllm) server on the host, this
+stack also scrapes its Prometheus `/metrics` endpoint and provisions a second
+dashboard, **"vLLM — Serving & Speculative Decoding"**, next to the GPU one.
+Nothing extra to install: vLLM already exposes `/metrics`, Prometheus reaches it
+via `host.docker.internal` (wired through `extra_hosts` on the prometheus
+service), and Grafana auto-loads the dashboard.
+
+Panels, all filterable by a `model` template variable:
+
+- decode throughput (generation tok/s) and prefill throughput (prompt tok/s)
+- requests running / waiting
+- TTFT and inter-token latency (p50 / p95 / p99)
+- KV-cache usage and prefix-cache hit rate
+- speculative decoding: mean acceptance length, draft acceptance %, and
+  **per-position acceptance rate** (handy for picking the draft depth / `k`)
+
+The scrape target defaults to `host.docker.internal:8000` in
+`prometheus/prometheus.yml`; change it if your server runs on a different host or
+port. If you do not run vLLM the job just stays `down` and the GPU dashboard is
+unaffected.
+
 ## Components
 
 | Service | Port | Role |
@@ -90,5 +113,6 @@ grafana/provisioning/                   # datasource and dashboard (auto-loaded)
   datasources/prometheus.yml
   dashboards/dashboards.yml
   dashboards/dgx-gpu-smi.json
+  dashboards/vllm.json                  # vLLM serving + speculative-decoding dashboard
 docs/screenshot-dashboard.png           # dashboard screenshot (linked in README)
 ```

@@ -65,6 +65,10 @@ services:
       - --storage.tsdb.path=/prometheus
     ports:
       - "9090:9090"
+    # Lets the "vllm" scrape job reach a vLLM server running on the host
+    # (host.docker.internal -> host gateway). Harmless if you don't run vLLM.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus

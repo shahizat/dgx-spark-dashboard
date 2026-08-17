@@ -21,6 +21,14 @@ Metrics exposed:
   dgx_gpu_power_draw_watts               - nvidia-smi power draw
   dgx_gpu_info                           - static GPU info {name,driver,cuda,uuid,pci_bus_id,host,vbios,compute_cap,pstate,compute_mode}
   dgx_gpu_compute_apps                   - number of processes with a compute context
+  dgx_cpu_usage_ratio                    - host CPU utilization [0..1] (delta of /proc/stat)
+  dgx_cpu_count                          - number of logical CPU cores
+  dgx_cpu_info                           - static CPU info {model,arch,cores}
+  dgx_load_average_1m/_5m/_15m           - host load average from /proc/loadavg
+  dgx_memory_total_bytes                 - host system RAM total (bytes)
+  dgx_memory_used_bytes                  - host system RAM used (total - available)
+  dgx_memory_available_bytes             - host system RAM available for new allocations
+  dgx_memory_buffers_cached_bytes        - host RAM in buffers + page cache (reclaimable)
   dgx_collect_success                    - 1 if the last collection succeeded
 """
 
@@ -41,10 +49,17 @@ INTERVAL = int(os.environ.get("COLLECT_INTERVAL", "10"))
 # Hold the last rendered metrics text; regenerated every INTERVAL.
 _LATEST = "# dgx custom collector starting...\n"
 
+# Previous /proc/stat aggregate sample, used to compute the CPU utilization
+# delta between collection rounds.
+_PREV_CPU = {"idle": None, "total": None}
+
 
 def _parse_meminfo():
-    """Parse /proc/meminfo for MemTotal and MemAvailable (kB), return bytes."""
-    total = avail = 0
+    """Parse /proc/meminfo for MemTotal/MemAvailable/Buffers/Cached, bytes.
+
+    Returns (total, available, buffers_cached). Values are 0 if unavailable.
+    """
+    total = avail = buffers = cached = 0
     try:
         with open("/proc/meminfo", "r", encoding="utf-8") as fh:
             for line in fh:
@@ -56,9 +71,85 @@ def _parse_meminfo():
                     total = int(num.group(0)) * 1024
                 elif key == "MemAvailable":
                     avail = int(num.group(0)) * 1024
+                elif key == "Buffers":
+                    buffers = int(num.group(0)) * 1024
+                elif key == "Cached":
+                    cached = int(num.group(0)) * 1024
     except OSError:
         pass
-    return total, avail
+    return total, avail, buffers + cached
+
+
+def _read_cpu_total():
+    """Return (idle, total) jiffies from the aggregate `cpu ` line of /proc/stat.
+
+    Fields (in order): user, nice, system, idle, iowait, irq, softirq, steal.
+    The kernel counts these against the host regardless of container, so with
+    /proc/stat bind-mounted this reflects the real host CPU. Returns
+    (None, None) when the file cannot be read or is malformed.
+    """
+    idle = total = None
+    try:
+        with open("/proc/stat", "r", encoding="utf-8") as fh:
+            first = fh.readline()
+        if first.startswith("cpu "):
+            parts = first.split()
+            vals = [int(v) for v in parts[1:10]]
+            # idle = idle + iowait; total = sum of the first 8 fields.
+            idle = vals[3] + vals[4]
+            total = sum(vals[:8])
+    except (OSError, ValueError, IndexError):
+        return None, None
+    return idle, total
+
+
+def _cpu_info():
+    """Read /proc/cpuinfo for the logical core count and ARM CPU model.
+
+    Returns (count, model, arch). On ARM there is no "model name"; the model is
+    derived from the `CPU implementer` / `CPU part`/`variant` values. Falls back
+    to "arm64" with "unknown cpu" when the file is unavailable or the part is
+    unrecognized.
+    """
+    arch = "arm64"
+    count = 0
+    implementer = part = ""
+    try:
+        with open("/proc/cpuinfo", "r", encoding="utf-8") as fh:
+            for line in fh:
+                key, _, val = line.partition(":")
+                key = key.strip()
+                val = val.strip()
+                if key == "processor":
+                    count += 1
+                elif key == "CPU implementer":
+                    implementer = val
+                elif key == "CPU part":
+                    part = val
+    except OSError:
+        return 0, "unknown cpu", arch
+
+    # ARM implementer 0x41 = ARM Ltd; map the Grace/GB10 part to a readable name.
+    model = f"ARM implementer {implementer} part {part}".strip()
+    if implementer.lower() == "0x41":
+        model = {
+            "0xd83": "NVIDIA Grace (Arm Neoverse V2)",
+            "0xd49": "Arm Cortex-A72",
+            "0xd4d": "Arm Cortex-A73",
+            "0xd40": "Arm Cortex-A53",
+            "0xd0b": "Arm Cortex-A57",
+        }.get(part.lower(), "ARM (Arm Neoverse)")
+    return count, model, arch
+
+
+def _load_average():
+    """Read the 1/5/15-minute load averages from /proc/loadavg."""
+    try:
+        with open("/proc/loadavg", "r", encoding="utf-8") as fh:
+            fields = fh.read().split()
+        return float(fields[0]), float(fields[1]), float(fields[2])
+    except (OSError, ValueError, IndexError):
+        return None, None, None
 
 
 def _parse_nvidia_smi_table():
@@ -138,14 +229,23 @@ def _parse_nvidia_smi_table():
 
 def _nvidia_driver():
     """
-    Static GPU info via nvidia-smi plus host-version env vars.
-    Inside the container nvidia-smi sees the driver runtime but reports
-    "CUDA Version: N/A" (no CUDA toolkit). docker-compose.yml therefore sets
-    DGX_DRIVER_VERSION and DGX_CUDA_VERSION to the host's real values; those are
-    authoritative and preferred. nvidia-smi supplies name/uuid/compute_mode/
-    persistence_mode/pstate.
+    Static GPU info: fetch live GPU fields via nvidia-smi, then derive the
+    driver version, CUDA version and host name from the host OS sources that
+    are bind-mounted into the container (so no version/host literals need to be
+    baked into the config — it works on any host: Jetson Thor, DGX Spark, ...).
+
+    Sources (in priority order):
+      - driver       : nvidia-smi query, then /etc/... fallback, then env
+      - cuda         : /usr/local/cuda/version.json (mounted from host), since
+                       in-container nvidia-smi reports "CUDA Version: N/A"
+                       (no CUDA toolkit inside the container)
+      - host         : /etc/hostname (mounted from host); the container's own
+                       hostname is just the container ID, which is not useful
+
+    The DGX_DRIVER_VERSION / DGX_CUDA_VERSION / DGX_HOST_NAME env vars serve
+    only as optional manual fallbacks when the OS sources are unavailable.
     """
-    info = {"name": "NVIDIA GB10", "driver": "unknown", "cuda": "unknown", "uuid": "unknown",
+    info = {"name": "NVIDIA", "driver": "unknown", "cuda": "unknown", "uuid": "unknown",
             "compute_mode": "unknown", "persistence_mode": "unknown", "pstate": "unknown",
             "pci_bus_id": "unknown", "vbios": "unknown", "compute_cap": "unknown",
             "host": "unknown"}
@@ -171,28 +271,67 @@ def _nvidia_driver():
     except OSError:
         pass
 
-    # Host that runs the collector (DGX Spark unit). Inside a container the
-    # default hostname is the container ID, which is not useful; prefer an
-    # explicit DGX_HOST_NAME override (set in docker-compose.yml to the host's
-    # real hostname) and fall back to socket.gethostname().
-    env_host = os.environ.get("DGX_HOST_NAME", "").strip()
-    info["host"] = env_host or socket.gethostname()
+    # Driver version — prefer the live nvidia-smi value (correct in-container on
+    # both Jetson L4T and DGX Spark); nil/placeholder values fall through to the
+    # optional env override.
+    if info["driver"] in ("unknown", "", "[N/A]", "N/A"):
+        env_driver = os.environ.get("DGX_DRIVER_VERSION", "").strip()
+        if env_driver:
+            info["driver"] = env_driver
 
-    # Override driver + CUDA from env vars (authoritative host values set in
-    # docker-compose.yml). nvidia-smi may report an empty/placeholder driver in
-    # some container setups, and CUDA is always "N/A" here.
-    env_driver = os.environ.get("DGX_DRIVER_VERSION", "").strip()
-    env_cuda = os.environ.get("DGX_CUDA_VERSION", "").strip()
-    if env_driver:
-        info["driver"] = env_driver
-    if env_cuda:
-        info["cuda"] = env_cuda
+    # CUDA version — read from the host-installed CUDA toolkit. Probe several
+    # common locations (bind-mounted into the container) since the exact path
+    # differs between hosts: a classic /usr/local/cuda install, the version.txt
+    # layout, or a versioned dir like /usr/local/cuda-13.2. In-container
+    # nvidia-smi reports "CUDA Version: N/A" (no CUDA toolkit inside the
+    # container), so these host sources are authoritative.
+    cuda_paths = [
+        "/usr/local/cuda/version.json",
+        "/usr/local/cuda/version.txt",
+        "/usr/local/cuda-12/version.json",
+        "/usr/local/cuda-13/version.json",
+    ]
+    for cuda_src in cuda_paths:
+        if not os.path.isfile(cuda_src):
+            continue
+        try:
+            if cuda_src.endswith(".json"):
+                import json as _json
+                _data = _json.load(open(cuda_src, encoding="utf-8"))
+                _cuda = (_data.get("cuda") or {}).get("version")
+                if _cuda:
+                    info["cuda"] = ".".join(str(_cuda).split(".")[:2])
+                    break
+            else:
+                # version.txt: "13.2.240" on the first line.
+                _cuda = open(cuda_src, encoding="utf-8").read().strip()
+                if _cuda:
+                    info["cuda"] = ".".join(str(_cuda).split(".")[:2])
+                    break
+        except (OSError, ValueError, AttributeError):
+            continue
+    if info["cuda"] in ("unknown", "", "N/A"):
+        env_cuda = os.environ.get("DGX_CUDA_VERSION", "").strip()
+        if env_cuda:
+            info["cuda"] = env_cuda
+
+    # Host name — read the host's /etc/hostname (mounted), then fall back to
+    # the optional DGX_HOST_NAME override, then the container hostname.
+    hostname = os.environ.get("DGX_HOST_NAME", "").strip()
+    if not hostname and os.path.isfile("/etc/hostname"):
+        try:
+            hostname = open("/etc/hostname", encoding="utf-8").read().strip()
+        except OSError:
+            hostname = ""
+    info["host"] = hostname or socket.gethostname()
+
     return info
 
 
 def collect():
     """Render the full metrics endpoint text."""
-    total, avail = _parse_meminfo()
+    global _PREV_CPU
+    total, avail, buffers_cached = _parse_meminfo()
     used = total - avail
     gpu_used, procs, util, mem_util, temp, power, app_count = _parse_nvidia_smi_table()
     info = _nvidia_driver()
@@ -260,6 +399,44 @@ def collect():
     gauge("dgx_gpu_persistence_mode_enabled",
           "1 if persistence mode is Enabled (0 if Disabled).",
           1 if info["persistence_mode"].lower().startswith("enabled") else 0)
+
+    # ---- host CPU ----
+    cpu_count, cpu_model, cpu_arch = _cpu_info()
+    load1, load5, load15 = _load_average()
+
+    # CPU utilization from the /proc/stat delta since the last collection.
+    idle, ctotal = _read_cpu_total()
+    if idle is not None and ctotal is not None:
+        p_idle, p_total = _PREV_CPU["idle"], _PREV_CPU["total"]
+        if p_idle is not None and p_total is not None and ctotal > p_total:
+            idle_delta = idle - p_idle
+            total_delta = ctotal - p_total
+            if total_delta > 0:
+                cpu_ratio = max(0.0, min(1.0, 1.0 - (idle_delta / total_delta)))
+                gauge("dgx_cpu_usage_ratio", "Host CPU utilization as a ratio.",
+                      f"{cpu_ratio:.6f}")
+        _PREV_CPU["idle"], _PREV_CPU["total"] = idle, ctotal
+
+    gauge("dgx_cpu_count", "Number of logical CPU cores on the host.", cpu_count)
+    gauge("dgx_cpu_info", "Static CPU info.",
+          1, {"model": cpu_model, "arch": cpu_arch, "cores": str(cpu_count)})
+    if load1 is not None:
+        gauge("dgx_load_average_1m", "Host 1-minute load average.",
+              f"{load1:.2f}")
+        gauge("dgx_load_average_5m", "Host 5-minute load average.",
+              f"{load5:.2f}")
+        gauge("dgx_load_average_15m", "Host 15-minute load average.",
+              f"{load15:.2f}")
+
+    # ---- host RAM (system memory, independent of the unified-memory view) ----
+    gauge("dgx_memory_total_bytes", "Total host system RAM in bytes.", total)
+    gauge("dgx_memory_used_bytes", "Host system RAM in use (total - available).", used)
+    gauge("dgx_memory_available_bytes",
+          "Host system RAM available for new allocations.", avail)
+    gauge("dgx_memory_buffers_cached_bytes",
+          "Host system RAM held in buffers + page cache (reclaimable).",
+          buffers_cached)
+
     gauge("dgx_collect_success", "Whether collection succeeded (1) or not (0).", 1)
 
     return "\n".join(L) + "\n"

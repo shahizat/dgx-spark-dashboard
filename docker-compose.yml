@@ -10,21 +10,44 @@ services:
     environment:
       DGX_EXPORTER_PORT: "9273"
       COLLECT_INTERVAL: "10"
+      # GPU version + host identity are discovered from the host OS at runtime
+      # (see collector/dgx_collector.py + the /etc/hostname & CUDA version.json
+      # mounts below). These env vars are optional fallbacks only, so the same
+      # compose file works on any host (Jetson Thor, DGX Spark, ...).
+      DGX_DRIVER_VERSION: ""
+      DGX_CUDA_VERSION: ""
+      DGX_HOST_NAME: ""
+      # NVIDIA_DRIVER_CAPABILITIES tells the toolkit which driver libraries to
+      # inject. Gets combined with the device plugin reservation below.
       NVIDIA_DRIVER_CAPABILITIES: utility
-      # nvidia-smi inside the container reports CUDA Version: N/A (no CUDA
-      # toolkit), so pass the host's real driver + CUDA versions explicitly.
-      DGX_DRIVER_VERSION: "580.126.09"
-      DGX_CUDA_VERSION: "13.0"
-      # Friendly host name for the info panel (container hostname is a random ID).
-      DGX_HOST_NAME: "gx10-868a"
     volumes:
       - ./collector/dgx_collector.py:/opt/dgx_collector.py:ro
       - /proc/meminfo:/proc/meminfo:ro
+      # Host CPU + memory sources the collector reads for the CPU & RAM panels
+      # (/proc/stat delta for utilization, loadavg, cpuinfo dump for model/cores).
+      # meminfo above covers RAM; these three cover the CPU telemetry.
+      - /proc/stat:/proc/stat:ro
+      - /proc/loadavg:/proc/loadavg:ro
+      - /proc/cpuinfo:/proc/cpuinfo:ro
+      # Host OS sources the collector derives driver/CUDA version + hostname
+      # from, so no version/host literals are baked into the config. CUDA
+      # layout differs by host (version.json vs version.txt, /usr/local/cuda
+      # vs /usr/local/cuda-<ver>), so mount several likely candidates.
+      - /etc/hostname:/etc/hostname:ro
+      - /usr/local/cuda/version.json:/usr/local/cuda/version.json:ro
+      - /usr/local/cuda/version.txt:/usr/local/cuda/version.txt:ro
+      - /usr/local/cuda-12/version.json:/usr/local/cuda-12/version.json:ro
+      - /usr/local/cuda-13/version.json:/usr/local/cuda-13/version.json:ro
     command: ["/usr/local/bin/python3", "/opt/dgx_collector.py"]
     ports:
       - "9273:9273"
     pid: host
     ipc: private
+    # GPU is exposed via the modern NVIDIA device plugin
+    # (`deploy.resources.devices` + `capabilities: [gpu]`), which the
+    # nvidia-container-toolkit supports on both DGX Spark and Jetson hosts.
+    # (The legacy `runtime: nvidia` path is NOT used — the DGX Spark's default
+    # Docker runtime is plain `runc`, so it would fail to start there.)
     deploy:
       resources:
         reservations:

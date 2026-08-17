@@ -17,6 +17,9 @@ small Python collector that:
 - reads `/proc/meminfo` for unified-memory total, used and available
 - parses the `nvidia-smi` process table to track per-process GPU memory
 - reports GPU utilization, temperature, power draw and the compute-app count
+- reads `/proc/stat`, `/proc/loadavg` and `/proc/cpuinfo` for host CPU usage,
+  load average and CPU model/cores
+- reports host system-RAM totals alongside the unified-memory view
 - serves everything over HTTP as Prometheus `/metrics`, with no extra agents
 
 The collector runs with the NVIDIA container runtime, so `nvidia-smi` works
@@ -30,7 +33,9 @@ Grafana provisions the dashboard automatically on first start. It covers GPU
 usage and unified-memory across multiple panels, including a **GPU Information**
 panel that shows static hardware details from `nvidia-smi` (model, host, driver,
 CUDA version, PCI bus, VBIOS, compute capability, P-state and compute mode),
-all sourced from the `dgx_gpu_info` metric.
+all sourced from the `dgx_gpu_info` metric. A **CPU & Memory** row shows host
+CPU utilization, load average, CPU model/cores and system-RAM usage (sourced
+from `dgx_cpu_*` and `dgx_memory_*`).
 
 ## Components
 
@@ -50,6 +55,11 @@ all sourced from the `dgx_gpu_info` metric.
   `dgx_gpu_power_draw_watts`, `dgx_gpu_compute_apps`
 - `dgx_gpu_info{name,driver,cuda,uuid,pci_bus_id,host,vbios,compute_cap,pstate,compute_mode}`
 - `dgx_gpu_pstate`, `dgx_gpu_compute_mode`, `dgx_gpu_persistence_mode`
+- `dgx_cpu_usage_ratio` (host CPU utilization [0..1])
+- `dgx_cpu_count`, `dgx_cpu_info{model,arch,cores}`
+- `dgx_load_average_1m`, `dgx_load_average_5m`, `dgx_load_average_15m`
+- `dgx_memory_total_bytes`, `dgx_memory_used_bytes`, `dgx_memory_available_bytes`
+- `dgx_memory_buffers_cached_bytes` (reclaimable buffers + page cache)
 - `dgx_collect_success` (1 when the last collection succeeded)
 
 ## Quick start

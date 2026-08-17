@@ -369,10 +369,188 @@
       ]
     },
     {
+      "id": 69,
+      "type": "row",
+      "title": "CPU & Memory",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 }
+    },
+    {
+      "id": 70,
+      "type": "stat",
+      "title": "CPU utilization",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 46 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 0.7 },
+            { "color": "red", "value": 0.9 }
+          ]}
+        },
+        "overrides": []
+      },
+      "targets": [ { "expr": "dgx_cpu_usage_ratio", "legendFormat": "CPU util" } ]
+    },
+    {
+      "id": 71,
+      "type": "stat",
+      "title": "Load average",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 46 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 7 },
+            { "color": "red", "value": 12 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [ { "expr": "dgx_load_average_1m", "legendFormat": "1m" } ]
+    },
+    {
+      "id": 72,
+      "type": "stat",
+      "title": "RAM used",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 46 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 100000000000 },
+            { "color": "red", "value": 120000000000 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [ { "expr": "dgx_memory_used_bytes", "legendFormat": "RAM used" } ]
+    },
+    {
+      "id": 73,
+      "type": "stat",
+      "title": "RAM available",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 46 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "color": { "mode": "fixed", "fixedColor": "green" } },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [ { "expr": "dgx_memory_available_bytes", "legendFormat": "RAM available" } ]
+    },
+    {
+      "id": 74,
+      "type": "timeseries",
+      "title": "CPU utilization over time",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2 }
+        },
+        "overrides": []
+      },
+      "targets": [ { "expr": "dgx_cpu_usage_ratio", "legendFormat": "CPU util" } ]
+    },
+    {
+      "id": 75,
+      "type": "timeseries",
+      "title": "Host memory over time",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "dgx_memory_total_bytes", "legendFormat": "Total" },
+        { "expr": "dgx_memory_used_bytes", "legendFormat": "Used" },
+        { "expr": "dgx_memory_available_bytes", "legendFormat": "Available" },
+        { "expr": "dgx_memory_buffers_cached_bytes", "legendFormat": "Buffers + cached" }
+      ]
+    },
+    {
+      "id": 76,
+      "type": "gauge",
+      "title": "RAM usage %",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 59 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 60 },
+            { "color": "red", "value": 85 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "dgx_memory_used_bytes / dgx_memory_total_bytes * 100", "legendFormat": "RAM usage" }
+      ]
+    },
+    {
+      "id": 77,
+      "type": "table",
+      "title": "CPU Information",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 59 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "transformations": [
+        { "id": "labelsToFields", "options": { "mode": "columns" } },
+        { "id": "organize", "options": {
+          "excludeByName": {
+            "Value": true, "Time": true, "__name__": true,
+            "instance": true, "job": true
+          },
+          "indexByName": { "model": 1, "arch": 2, "cores": 3 },
+          "renameByName": { "model": "Model", "arch": "Architecture", "cores": "Cores" }
+        } }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }
+          ]}
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Time" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
+          { "matcher": { "id": "byName", "options": "Value" }, "properties": [ { "id": "custom.hidden", "value": true } ] }
+        ]
+      },
+      "options": { "showHeader": true },
+      "targets": [ { "expr": "dgx_cpu_info", "format": "table", "instant": true, "legendFormat": "__auto", "refId": "A" } ]
+    },
+    {
       "id": 60,
       "type": "stat",
       "title": "Collector health",
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 45 },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 67 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {

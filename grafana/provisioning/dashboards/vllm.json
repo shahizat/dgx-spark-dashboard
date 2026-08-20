@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
   "time": {
     "from": "now-30m",
@@ -40,7 +40,7 @@
   "panels": [
     {
       "id": 1,
-      "type": "timeseries",
+      "type": "gauge",
       "title": "Decode throughput (gen tok/s)",
       "description": "Output tokens/s. The number I usually watch during a run.",
       "gridPos": {
@@ -56,29 +56,42 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "fillOpacity": 8,
-            "showPoints": "never",
-            "lineWidth": 2
+          "min": 0,
+          "max": 80,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 12
+              },
+              {
+                "color": "green",
+                "value": 32
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
+        "reduceOptions": {
           "calcs": [
-            "last",
-            "max"
-          ]
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
       },
       "targets": [
         {
@@ -86,14 +99,14 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:generation_tokens_total{model_name=~\"$model_name\"}[1m])) by (model_name)",
-          "legendFormat": "{{model_name}}"
+          "expr": "sum(rate(vllm:generation_tokens_total{model_name=~\"$model_name\"}[1m]))",
+          "legendFormat": "gen tok/s"
         }
       ]
     },
     {
       "id": 2,
-      "type": "timeseries",
+      "type": "gauge",
       "title": "Prefill throughput (prompt tok/s)",
       "description": "",
       "gridPos": {
@@ -109,29 +122,42 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "fillOpacity": 8,
-            "showPoints": "never",
-            "lineWidth": 2
+          "min": 0,
+          "max": 2500,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 375
+              },
+              {
+                "color": "green",
+                "value": 1000
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
+        "reduceOptions": {
           "calcs": [
-            "last",
-            "max"
-          ]
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
       },
       "targets": [
         {
@@ -139,8 +165,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:prompt_tokens_total{model_name=~\"$model_name\"}[1m])) by (model_name)",
-          "legendFormat": "{{model_name}}"
+          "expr": "sum(rate(vllm:prompt_tokens_total{model_name=~\"$model_name\"}[1m]))",
+          "legendFormat": "prompt tok/s"
         }
       ]
     },
